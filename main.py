@@ -1,5 +1,9 @@
 import base64
+import signal
+
 import streamlit as st
+import subprocess
+
 import os
 import pandas as pd
 import numpy as np
@@ -7,11 +11,17 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 import plotly.express as px
 from scipy.signal import savgol_filter
+from sympy import false
 from feat import Detector
 import cv2
 from PIL import Image
 import tempfile
+from xgboost import XGBClassifier
 from io import BytesIO
+
+
+
+
 
 st.set_page_config(page_title="Facial Analysis")
 detector = Detector()

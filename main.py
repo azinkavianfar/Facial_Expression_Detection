@@ -1,31 +1,21 @@
 import base64
-import signal
-
 import streamlit as st
-import subprocess
-
 import os
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
 import plotly.express as px
-from sympy import false
-
+from scipy.signal import savgol_filter
 from feat import Detector
 import cv2
 from PIL import Image
 import tempfile
-from xgboost import XGBClassifier
-
 from io import BytesIO
 
-from feat.utils.io import read_feat
-
-# Initialize the detector
+st.set_page_config(page_title="Facial Analysis")
 detector = Detector()
 
-# Dictionary to map AU codes to their names
 au_names = {
     "AU01": "Inner Brow Raiser",
     "AU02": "Outer Brow Raiser",
@@ -49,12 +39,11 @@ au_names = {
     "AU43": "Eyes Closed",
 }
 
-# Define AUs for happiness (Goodnews) and sadness (Badnews)
-happiness_aus = ["AU06", "AU12", "AU25", "AU26"]  # Goodnews AUs
-sadness_aus = ["AU01", "AU04", "AU15", "AU17", "AU24"]  # Badnews AUs
+happiness_aus = ["AU06", "AU12", "AU25", "AU26"]
+sadness_aus = ["AU01", "AU04", "AU15", "AU17", "AU24"]
 
 
-# Function to create a download link for a DataFrame
+
 def get_table_download_link(df, filename="data.csv", text="Download CSV"):
     """Generates a link allowing the data in a given panda dataframe to be downloaded"""
     csv = df.to_csv(index=False)
@@ -63,7 +52,6 @@ def get_table_download_link(df, filename="data.csv", text="Download CSV"):
     return href
 
 
-# Function to create a download link for a plot
 def get_plot_download_link(fig, filename="plot.png", text="Download Plot"):
     """Generates a link allowing the plot to be downloaded"""
     buf = BytesIO()
@@ -74,7 +62,6 @@ def get_plot_download_link(fig, filename="plot.png", text="Download Plot"):
     return href
 
 
-# Function to process a single video
 def process_single_video(input_video_path, output_video_path, confidence_threshold, selected_aus):
     cap = cv2.VideoCapture(input_video_path)
     if not cap.isOpened():
@@ -254,9 +241,9 @@ def process_single_video(input_video_path, output_video_path, confidence_thresho
 
         # Calculate average Goodnews/Badnews intensities
         num_frames = summary_stats["Frames with Faces"]
-        summary_stats["Average Goodness Intensity"] /= (
+        summary_stats["Average Goodnews Intensity"] /= (
                 num_frames * len([au for au in selected_aus if au in happiness_aus]))
-        summary_stats["Average Badness Intensity"] /= (
+        summary_stats["Average Badnews Intensity"] /= (
                 num_frames * len([au for au in selected_aus if au in sadness_aus]))
 
     return results_df, summary_stats
@@ -264,10 +251,10 @@ def process_single_video(input_video_path, output_video_path, confidence_thresho
 
 # Streamlit UI
 st.title("Facial Analysis")
-tab1, tab2 = st.tabs(["Single Video Analysis", "Configurations"])
+tab1, tab2 = st.tabs(["Analysis", "Configurations"])
 
 with tab1:
-    st.header("Single Video Analysis")
+    st.header("Video Analysis")
     uploaded_file = st.file_uploader("Upload a video", type=["mp4", "avi"], key="single_video")
 
     if uploaded_file is not None:
@@ -356,7 +343,7 @@ with tab1:
                     window_size -= 1
 
                 for au in smoothed_df.columns:
-                    smoothed_df[au] = signal.savgol_filter(
+                    smoothed_df[au] = savgol_filter(
                         smoothed_df[au],
                         window_length=window_size,
                         polyorder=2
@@ -432,17 +419,18 @@ with tab1:
 
         os.remove(input_video_path)
 
+with tab2:
+    st.info("Temp Files")
+    if st.button("Clear All Temporary Files"):
+        for file in os.listdir("temp"):
+            file_path = os.path.join("temp", file)
+            try:
+                if os.path.isfile(file_path):
+                    os.remove(file_path)
+            except Exception as e:
+                st.error(f"Error deleting {file_path}: {e}")
+        st.success("All temporary files cleared!")
 
-st.info("Temp Files")
-if st.button("Clear All Temporary Files"):
-    for file in os.listdir("temp"):
-        file_path = os.path.join("temp", file)
-        try:
-            if os.path.isfile(file_path):
-                os.remove(file_path)
-        except Exception as e:
-            st.error(f"Error deleting {file_path}: {e}")
-    st.success("All temporary files cleared!")
 
 
 

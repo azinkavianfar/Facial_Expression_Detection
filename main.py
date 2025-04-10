@@ -254,17 +254,17 @@ def process_single_video(input_video_path, output_video_path, confidence_thresho
 
         # Calculate average Goodnews/Badnews intensities
         num_frames = summary_stats["Frames with Faces"]
-        summary_stats["Average Goodnews Intensity"] /= (
+        summary_stats["Average Goodness Intensity"] /= (
                 num_frames * len([au for au in selected_aus if au in happiness_aus]))
-        summary_stats["Average Badnews Intensity"] /= (
+        summary_stats["Average Badness Intensity"] /= (
                 num_frames * len([au for au in selected_aus if au in sadness_aus]))
 
     return results_df, summary_stats
 
 
 # Streamlit UI
-st.title("Facial Expression Analysis App")
-tab1, tab2 = st.tabs(["Single Video Analysis", "Multiple Videos Analysis"])
+st.title("Facial Analysis")
+tab1, tab2 = st.tabs(["Single Video Analysis", "Configurations"])
 
 with tab1:
     st.header("Single Video Analysis")
@@ -432,324 +432,8 @@ with tab1:
 
         os.remove(input_video_path)
 
-with tab2:
-    st.header("Multiple Videos Analysis")
-    uploaded_files = st.file_uploader("Upload multiple videos", type=["mp4", "avi"], accept_multiple_files=True,
-                                      key="multiple_videos")
 
-    if uploaded_files:
-        # Create temp directory if it doesn't exist
-        os.makedirs("temp", exist_ok=True)
-
-        progress_bar = st.progress(0)
-        status_text = st.empty()
-        status_text.text("Starting video processing...")
-
-        # Initialize combined results
-        all_results = []
-        video_names = []
-
-        for i, video in enumerate(uploaded_files):
-            video_path = os.path.join("temp", video.name)
-            with open(video_path, "wb") as f:
-                f.write(video.getbuffer())
-
-            # Process video and save results
-            out_name = video_path.replace(".mp4", ".csv").replace(".avi", ".csv")
-            if not os.path.exists(out_name):
-                try:
-                    status_text.text(f"Processing {video.name}...")
-                    fex = detector.detect(video_path)
-                    fex['video_name'] = video.name  # Add video name as a column
-                    fex.to_csv(out_name)
-                    all_results.append(fex)
-                    video_names.append(video.name)
-                except Exception as e:
-                    st.error(f"Error processing {video.name}: {str(e)}")
-                    continue
-
-            progress_bar.progress((i + 1) / len(uploaded_files))
-
-        st.success("All videos processed successfully!")
-        status_text.empty()
-
-        # Combined analysis section
-        if len(all_results) > 1:
-            st.subheader("Combined Analysis Across All Videos")
-
-            try:
-                combined_df = pd.concat(all_results)
-
-                # 1. Combined AU Analysis
-                au_cols = [col for col in combined_df.columns if col.startswith('AU')]
-                if au_cols:
-                    fig, ax = plt.subplots(figsize=(12, 6))
-                    combined_df.groupby('video_name')[au_cols].mean().T.plot(kind='bar', ax=ax)
-                    ax.set_title("Average AU Intensity by Video")
-                    ax.set_ylabel("Intensity (0-1)")
-                    plt.xticks(rotation=45)
-                    plt.legend(title='Video Name', bbox_to_anchor=(1.05, 1), loc='upper left')
-                    st.pyplot(fig)
-                    st.markdown(get_plot_download_link(fig, "combined_au_analysis.png"), unsafe_allow_html=True)
-
-                    # Download combined AU data
-                    combined_au_data = combined_df.groupby('video_name')[au_cols].mean()
-                    st.markdown(get_table_download_link(combined_au_data, "combined_au_data.csv"),
-                                unsafe_allow_html=True)
-
-                # 2. Combined Emotion Analysis
-                emotion_cols = ['happiness', 'sadness', 'anger', 'surprise', 'fear', 'disgust', 'neutral']
-                available_emotions = [col for col in emotion_cols if col in combined_df.columns]
-
-                if available_emotions:
-                    fig, ax = plt.subplots(figsize=(12, 6))
-                    combined_df.groupby('video_name')[available_emotions].mean().plot(kind='bar', ax=ax)
-                    ax.set_title("Average Emotion Intensity by Video")
-                    ax.set_ylabel("Intensity (0-1)")
-                    plt.legend(title='Emotion', bbox_to_anchor=(1.05, 1), loc='upper left')
-                    st.pyplot(fig)
-                    st.markdown(get_plot_download_link(fig, "combined_emotion_analysis.png"), unsafe_allow_html=True)
-
-                    # Download combined emotion data
-                    combined_emotion_data = combined_df.groupby('video_name')[available_emotions].mean()
-                    st.markdown(get_table_download_link(combined_emotion_data, "combined_emotion_data.csv"),
-                                unsafe_allow_html=True)
-
-                    # Emotion radar chart
-                    st.write("### Emotion Profile Comparison")
-                    fig = px.line_polar(
-                        combined_df.groupby('video_name')[available_emotions].mean().reset_index(),
-                        r='happiness',
-                        theta='video_name',
-                        line_close=True,
-                        title="Emotion Profile Comparison"
-                    )
-                    st.plotly_chart(fig)
-
-                    # Download plotly figure as HTML
-                    plotly_html = fig.to_html()
-                    st.download_button(
-                        label="Download Interactive Emotion Chart (HTML)",
-                        data=plotly_html,
-                        file_name="emotion_comparison.html",
-                        mime="text/html"
-                    )
-
-                # 3. Combined Goodnews vs Badnews Analysis
-                st.subheader("Combined Goodnews vs Badnews Analysis")
-
-                # Calculate average intensities for each video
-                video_stats = []
-                for video in all_results:
-                    available_happiness = [au for au in happiness_aus if au in video.columns]
-                    available_sadness = [au for au in sadness_aus if au in video.columns]
-
-                    if available_happiness and available_sadness:
-                        video_name = video['video_name'].iloc[0]
-                        happiness_mean = video[available_happiness].mean().mean()
-                        sadness_mean = video[available_sadness].mean().mean()
-
-                        video_stats.append({
-                            'Video': video_name,
-                            'Type': 'Goodnews',
-                            'Average Intensity': happiness_mean
-                        })
-                        video_stats.append({
-                            'Video': video_name,
-                            'Type': 'Badnews',
-                            'Average Intensity': sadness_mean
-                        })
-
-                if video_stats:
-                    comparison_df = pd.DataFrame(video_stats)
-
-                    # Create comparison plot
-                    fig, ax = plt.subplots(figsize=(12, 6))
-                    sns.barplot(data=comparison_df, x='Video', y='Average Intensity', hue='Type',
-                                palette={'Goodnews': 'blue', 'Badnews': 'orange'}, ax=ax)
-                    ax.set_title('Goodnews vs Badnews Comparison Across Videos')
-                    ax.set_ylabel('Average Intensity')
-                    plt.xticks(rotation=45)
-                    st.pyplot(fig)
-                    st.markdown(get_plot_download_link(fig, "combined_goodnews_badnews.png"), unsafe_allow_html=True)
-
-                    # Download comparison data
-                    st.download_button(
-                        label="Download Goodnews/Badnews Comparison Data",
-                        data=comparison_df.to_csv(index=False).encode('utf-8'),
-                        file_name="combined_goodnews_badnews.csv",
-                        mime="text/csv"
-                    )
-                else:
-                    st.warning("Insufficient data for combined Goodnews/Badnews comparison")
-
-            except Exception as e:
-                st.error(f"Error generating combined analysis: {str(e)}")
-
-        # Display results for each video
-        for video in uploaded_files:
-            csv_path = os.path.join("temp", video.name.replace(".mp4", ".csv").replace(".avi", ".csv"))
-
-            if not os.path.exists(csv_path):
-                st.warning(f"No results found for {video.name}")
-                continue
-
-            try:
-                fex = read_feat(csv_path)
-            except Exception as e:
-                st.error(f"Error loading results for {video.name}: {str(e)}")
-                continue
-
-            st.write(f"## Analysis for: {video.name}")
-
-            # 1. AU Detection Bar Chart
-            with st.expander("Action Units Analysis"):
-                st.write("### Average AU Intensity")
-                try:
-                    available_aus = [col for col in fex.columns if col.startswith('AU')]
-                    if available_aus:
-                        fig, ax = plt.subplots(figsize=(12, 6))
-                        fex[available_aus].mean().plot(kind='bar', color='steelblue', ax=ax)
-                        ax.set_title(f"Action Units Detection - {video.name}")
-                        ax.set_ylabel("Intensity (0-1)")
-                        plt.xticks(rotation=45)
-                        st.pyplot(fig)
-                        st.markdown(get_plot_download_link(fig, f"{video.name}_au_analysis.png"),
-                                    unsafe_allow_html=True)
-
-                        # AU Time Series with Smoothing
-                        st.write("### AU Intensity Over Time (Smoothed)")
-
-                        # Apply smoothing
-                        smoothed_df = fex[available_aus].copy()
-                        window_size = min(15, len(smoothed_df) // 2 or 1)
-                        if window_size % 2 == 0:
-                            window_size -= 1
-
-                        for au in available_aus:
-                            smoothed_df[au] = signal.savgol_filter(
-                                smoothed_df[au],
-                                window_length=window_size,
-                                polyorder=2
-                            )
-
-                        # Create plot with baseline at 0
-                        fig = px.line(smoothed_df, title=f"AU Dynamics - {video.name}")
-                        fig.update_layout(
-                            hovermode="x unified",
-                            yaxis_title="Intensity",
-                            yaxis_range=[0, 1]  # Set y-axis range from 0 to 1
-                        )
-                        st.plotly_chart(fig, use_container_width=True)
-
-                        # Download smoothed data
-                        st.download_button(
-                            label=f"Download Smoothed AU Data for {video.name}",
-                            data=smoothed_df.to_csv().encode('utf-8'),
-                            file_name=f"{video.name}_au_smoothed.csv",
-                            mime="text/csv"
-                        )
-                    else:
-                        st.warning("No AU data available for this video")
-                except Exception as e:
-                    st.error(f"Error generating AU charts: {str(e)}")
-
-            # 2. Emotions Analysis
-            with st.expander("Emotions Analysis"):
-                st.write("### Emotion Distribution")
-                try:
-                    emotion_cols = ['happiness', 'sadness', 'anger', 'surprise', 'fear', 'disgust', 'neutral']
-                    available_emotions = [col for col in emotion_cols if col in fex.columns]
-
-                    if available_emotions:
-                        fig, ax = plt.subplots(figsize=(10, 6))
-                        fex[available_emotions].mean().plot(kind='bar', color='blue', ax=ax)
-                        ax.set_title(f"Average Emotion Intensity - {video.name}")
-                        ax.set_ylabel("Intensity (0-1)")
-                        st.pyplot(fig)
-                        st.markdown(get_plot_download_link(fig, f"{video.name}_emotion_distribution.png"),
-                                    unsafe_allow_html=True)
-
-                        # Emotion Time Series
-                        st.write("### Emotion Dynamics Over Time")
-                        fig = px.line(fex[available_emotions], title=f"Emotion Timeline - {video.name}")
-                        fig.update_layout(yaxis_range=[0, 1])  # Set y-axis range from 0 to 1
-                        st.plotly_chart(fig, use_container_width=True)
-
-                        # Download emotion time series data
-                        st.markdown(
-                            get_table_download_link(fex[available_emotions], f"{video.name}_emotion_timeseries.csv"),
-                            unsafe_allow_html=True)
-                    else:
-                        st.warning("No emotion data available for this video")
-                except Exception as e:
-                    st.error(f"Error generating emotion charts: {str(e)}")
-
-            # 3. Goodnews vs Badnews Comparison
-            with st.expander("Goodnews vs Badnews Comparison"):
-                try:
-                    # Get available AUs from our predefined lists
-                    available_happiness = [au for au in happiness_aus if au in fex.columns]
-                    available_sadness = [au for au in sadness_aus if au in fex.columns]
-
-                    if available_happiness and available_sadness:
-                        # Calculate means for each group
-                        happiness_mean = fex[available_happiness].mean().mean()
-                        sadness_mean = fex[available_sadness].mean().mean()
-
-                        # Create comparison plot
-                        fig, ax = plt.subplots(figsize=(8, 6))
-                        ax.bar(['Goodnews AUs', 'Badnews AUs'],
-                               [happiness_mean, sadness_mean],
-                               color=['blue', 'orange'])
-                        ax.set_ylabel('Average Intensity')
-                        ax.set_title(f'Goodnews vs Badnews Comparison - {video.name}')
-                        st.pyplot(fig)
-                        st.markdown(get_plot_download_link(fig, f"{video.name}_goodnews_vs_badnews.png"),
-                                    unsafe_allow_html=True)
-
-                        # Create detailed comparison
-                        st.write("### Detailed AU Comparison")
-
-                        # Prepare data
-                        comparison_data = pd.DataFrame({
-                            'Type': ['Goodnews'] * len(available_happiness) + ['Badnews'] * len(available_sadness),
-                            'AU': available_happiness + available_sadness,
-                            'Average Intensity': list(fex[available_happiness].mean()) + list(
-                                fex[available_sadness].mean())
-                        })
-
-                        fig2, ax2 = plt.subplots(figsize=(12, 6))
-                        sns.barplot(data=comparison_data, x='AU', y='Average Intensity', hue='Type',
-                                    palette={'Goodnews': 'blue', 'Badnews': 'orange'}, ax=ax2)
-                        ax2.set_title(f'Detailed AU Comparison - {video.name}')
-                        ax2.set_ylim(0, 1)
-                        st.pyplot(fig2)
-                        st.markdown(get_plot_download_link(fig2, f"{video.name}_detailed_au_comparison.png"),
-                                    unsafe_allow_html=True)
-
-                        # Download comparison data
-                        st.download_button(
-                            label=f"Download Comparison Data for {video.name}",
-                            data=comparison_data.to_csv(index=False).encode('utf-8'),
-                            file_name=f"{video.name}_goodnews_badnews_comparison.csv",
-                            mime="text/csv"
-                        )
-                    else:
-                        st.warning("Insufficient data for Goodnews/Badnews comparison")
-                except Exception as e:
-                    st.error(f"Error generating comparison chart: {str(e)}")
-
-            # Download buttons
-            st.download_button(
-                label=f"Download {video.name} Results (CSV)",
-                data=open(csv_path, 'rb').read(),
-                file_name=f"{video.name}_results.csv",
-                mime="text/csv"
-            )
-
-            st.write("---")
-
+st.info("Temp Files")
 if st.button("Clear All Temporary Files"):
     for file in os.listdir("temp"):
         file_path = os.path.join("temp", file)
@@ -759,6 +443,9 @@ if st.button("Clear All Temporary Files"):
         except Exception as e:
             st.error(f"Error deleting {file_path}: {e}")
     st.success("All temporary files cleared!")
+
+
+
 
 
 

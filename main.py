@@ -18,7 +18,13 @@ from PIL import Image
 import tempfile
 from xgboost import XGBClassifier
 from io import BytesIO
-
+import logging
+import os
+import xgboost
+xgboost.set_config(verbosity=0)
+logging.basicConfig(filename=os.devnull)
+logging.disable(logging.FATAL)
+logging.getLogger("urllib3").setLevel(logging.CRITICAL)
 
 
 
@@ -133,8 +139,7 @@ def process_single_video(input_video_path, output_video_path, confidence_thresho
 
         facew = results.iloc[0]
         landmarks = facew.get("landmarks", None)
-        print(results.columns)
-        print(landmarks)
+
 
 
 
